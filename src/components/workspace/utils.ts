@@ -21,22 +21,30 @@ export const applyTransformToGroup = (
   group.rotation.set(...rotation);
 };
 
-const raycaster = new Raycaster();
-const rayOrigin = new Vector3();
-const rayDirection = new Vector3();
-const intersectionPoint = new Vector3();
-const candidateBox = new Box3();
-const targetBox = new Box3();
+const createCollisionCache = () => ({
+  raycaster: new Raycaster(),
+  rayOrigin: new Vector3(),
+  rayDirection: new Vector3(),
+  intersectionPoint: new Vector3(),
+  candidateBox: new Box3(),
+  targetBox: new Box3(),
+});
+
+export type CollisionCache = ReturnType<typeof createCollisionCache>;
+const defaultCollisionCache = createCollisionCache();
+const COLLISION_EXPANSION = 4;
 
 const buildFootprintBox = (
   box: Box3,
   [x, y, z]: [number, number, number],
   [width, depth]: [number, number],
 ) => {
-  const halfWidth = width / 2;
-  const halfDepth = depth / 2;
+  const halfWidth = (width * COLLISION_EXPANSION) / 2;
+  const halfDepth = (depth * COLLISION_EXPANSION) / 2;
+
   box.min.set(x - halfWidth, y - 0.5, z - halfDepth);
-  box.max.set(x + halfWidth, y + 0.5, z + halfDepth);
+  box.max.set(x + halfWidth, y + 2, z + halfDepth);
+  console.debug("collision box", { x, y, z, width, depth, boxMin: box.min, boxMax: box.max });
   return box;
 };
 
@@ -44,34 +52,23 @@ export const hasCollision = (
   nextPosition: [number, number, number],
   selfFootprint: [number, number] | undefined,
   otherModels: ModelState[],
+  cache: CollisionCache = defaultCollisionCache,
 ) => {
   if (!selfFootprint) {
     return false;
   }
 
-  buildFootprintBox(candidateBox, nextPosition, selfFootprint);
-  rayOrigin.set(...nextPosition);
+  buildFootprintBox(cache.candidateBox, nextPosition, selfFootprint);
 
   return otherModels.some((model) => {
     if (!model.footprint) {
       return false;
     }
 
-    buildFootprintBox(targetBox, model.position, model.footprint);
+    buildFootprintBox(cache.targetBox, model.position, model.footprint);
 
-    if (candidateBox.intersectsBox(targetBox)) {
-      return true;
-    }
-
-    rayDirection.set(model.position[0], model.position[1], model.position[2]).sub(rayOrigin);
-    const distance = rayDirection.length();
-    if (distance === 0) {
-      return true;
-    }
-    rayDirection.normalize();
-    raycaster.ray.origin.copy(rayOrigin);
-    raycaster.ray.direction.copy(rayDirection);
-    const hit = raycaster.ray.intersectBox(targetBox, intersectionPoint);
-    return Boolean(hit && hit.distanceTo(rayOrigin) <= distance);
+    return cache.candidateBox.intersectsBox(cache.targetBox);
   });
 };
+
+export { createCollisionCache };

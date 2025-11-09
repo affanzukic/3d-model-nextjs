@@ -7,12 +7,9 @@ import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import type { TransformControls as TransformControlsImpl } from "three-stdlib";
 import { Euler, Group } from "three";
 
+import { useCollisionGuard } from "@/components/workspace/hooks/use-collision-guard";
 import type { ModelInstanceProps } from "@/components/workspace/scene-model/types";
-import {
-  applyTransformToGroup,
-  computeFootprint,
-  // hasCollision,
-} from "@/components/workspace/utils";
+import { applyTransformToGroup, computeFootprint } from "@/components/workspace/utils";
 import { useModelStore, ViewMode } from "@/lib/store";
 
 const ModelInstanceComponent = ({ model }: ModelInstanceProps) => {
@@ -28,15 +25,20 @@ const ModelInstanceComponent = ({ model }: ModelInstanceProps) => {
   const updateTransform = useModelStore((state) => state.updateModelTransform);
   const selectModel = useModelStore((state) => state.selectModel);
   const selectedModelId = useModelStore((state) => state.selectedModelId);
+  const models = useModelStore((state) => state.models);
   const updateFootprint = useModelStore((state) => state.updateFootprint);
   const setCameraLocked = useModelStore((state) => state.setCameraLocked);
   const viewMode = useModelStore((state) => state.viewMode);
   const is3DView = viewMode === ViewMode.VIEW_3D;
-  // const models = useModelStore((state) => state.models);
-  // const otherModels = useMemo(
-  //   () => models.filter((storeModel) => storeModel.id !== model.id),
-  //   [model.id, models],
-  // );
+  const otherModels = useMemo(
+    () => models.filter((storeModel) => storeModel.id !== model.id),
+    [model.id, models],
+  );
+  const collisionGuard = useCollisionGuard({ footprintRef, otherModels });
+  const lastValidTransformRef = useRef<{
+    position: [number, number, number];
+    rotation: [number, number, number];
+  }>({ position: model.position, rotation: model.rotation });
 
   useEffect(() => {
     if (!localScene) {
@@ -51,31 +53,42 @@ const ModelInstanceComponent = ({ model }: ModelInstanceProps) => {
     applyTransformToGroup(groupRef.current, model.position, model.rotation);
   }, [model.position, model.rotation]);
 
+  useEffect(() => {
+    lastValidTransformRef.current = {
+      position: model.position,
+      rotation: model.rotation,
+    };
+  }, [model.position, model.rotation]);
+
   const handleObjectChange = useCallback(() => {
     const group = groupRef.current;
     if (!group) {
       return;
     }
-    const { x, y, z } = group.parent?.position ?? {
-      x: group.position.x,
-      y: group.position.y,
-      z: group.position.z,
-    };
+    const { x, y, z } = group.parent?.position ?? group.position;
     const nextPosition: [number, number, number] = [x, y, z];
 
-    applyTransformToGroup(groupRef.current, model.position, model.rotation);
+    const lastValid = lastValidTransformRef.current;
+    applyTransformToGroup(group, lastValid.position, lastValid.rotation);
 
-    // TODO: fix collision detection
-    // if (hasCollision(nextPosition, footprintRef.current, otherModels)) {
-    //   applyTransformToGroup(groupRef.current, model.position, model.rotation);
-    //   return;
-    // }
+    if (collisionGuard(nextPosition)) {
+      return;
+    }
 
+    const nextRotation = [group.rotation.x, group.rotation.y, group.rotation.z] as [
+      number,
+      number,
+      number,
+    ];
+    lastValidTransformRef.current = {
+      position: nextPosition,
+      rotation: nextRotation,
+    };
     updateTransform(model.id, {
       position: nextPosition,
-      rotation: [group.rotation.x, group.rotation.y, group.rotation.z] as [number, number, number],
+      rotation: nextRotation,
     });
-  }, [model.id, model.position, model.rotation, updateTransform]);
+  }, [collisionGuard, model.id, updateTransform]);
 
   useEffect(() => {
     const controls = controlsRef.current;
