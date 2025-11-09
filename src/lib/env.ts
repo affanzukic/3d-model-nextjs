@@ -14,6 +14,7 @@ const envSchema = z.object({
 const parsedEnv = envSchema.safeParse(process.env);
 
 if (!parsedEnv.success) {
+  console.log(parsedEnv);
   console.error("❌ Nepravilne .env vrijednosti:", parsedEnv.error.flatten().fieldErrors);
   throw new Error("Nepravilno okruženje!");
 }
