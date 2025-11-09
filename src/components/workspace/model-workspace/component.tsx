@@ -1,88 +1,90 @@
 "use client";
 
-import { memo, useCallback, useMemo } from "react";
-import { Plus } from "lucide-react";
+import { memo, useEffect, useMemo, useState } from "react";
 
-import { Button, Card, CardContent, CardHeader, CardTitle, ModeToggle } from "@/components/ui";
+import { Card, CardContent, CardHeader, CardTitle, ModeToggle } from "@/components/ui";
 import { ModelControlCard } from "@/components/workspace/model-control-card";
 import type { WorkspaceStat } from "@/components/workspace/model-workspace/types";
 import { ModelCanvas } from "@/components/workspace/scene-canvas";
 import { ViewToggle } from "@/components/workspace/view-toggle";
 import { useModelStore, ViewMode } from "@/lib/store";
-
-import { MAX_MODELS } from "@/components/workspace/model-workspace/consts";
+import { Loader } from "@/components/workspace/loader";
+import { StatBlocks } from "@/components/workspace/stat-blocks";
 
 const ModelWorkspaceComponent = () => {
+  const [hasHydrated, setHasHydrated] = useState(false);
   const models = useModelStore((state) => state.models);
+  const liveTransforms = useModelStore((state) => state.liveTransforms);
+  const hydrateTransforms = useModelStore((state) => state.hydrateTransforms);
   const viewMode = useModelStore((state) => state.viewMode);
-  const addModel = useModelStore((state) => state.addModel);
   const is3D = viewMode === ViewMode.VIEW_3D;
-  const canAddModel = models.length < MAX_MODELS;
+
+  useEffect(() => {
+    if (hasHydrated) {
+      return;
+    }
+    let mounted = true;
+    const loadTransforms = async () => {
+      const { fetchModelTransforms } = await import("@/lib/services/model-transforms");
+      const remoteTransforms = await fetchModelTransforms(models.map((model) => model.id));
+      if (!mounted) {
+        return;
+      }
+      hydrateTransforms(remoteTransforms);
+      setHasHydrated(true);
+    };
+    loadTransforms();
+    return () => {
+      mounted = false;
+    };
+  }, [hasHydrated, hydrateTransforms, models]);
+
+  const resolvedModels = useMemo(
+    () =>
+      models.map((model) => {
+        const liveTransform = liveTransforms[model.id];
+        return liveTransform ? { ...model, ...liveTransform } : model;
+      }),
+    [liveTransforms, models],
+  );
 
   const stats = useMemo<WorkspaceStat[]>(
     () =>
-      models.map((model) => ({
+      resolvedModels.map((model) => ({
         id: model.id,
+        label: model.label,
         position: model.position.map((axis) => axis.toFixed(2)) as WorkspaceStat["position"],
         rotationDeg: (model.rotation[1] * 180) / Math.PI,
       })),
-    [models],
+    [resolvedModels],
   );
 
   const controlCards = useMemo(
-    () => models.map((model) => <ModelControlCard key={model.id} model={model} />),
-    [models],
+    () => resolvedModels.map((model) => <ModelControlCard key={model.id} model={model} />),
+    [resolvedModels],
   );
 
   const statBlocks = useMemo(
-    () =>
-      stats.map((stat) => (
-        <div
-          key={stat.id}
-          className="flex items-center justify-between rounded-md border px-3 py-2"
-        >
-          <div>
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">{stat.id}</p>
-            <p className="font-medium">poz: {stat.position.join(", ")}</p>
-          </div>
-          <div className="text-right">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">rot (y)</p>
-            <p className="font-medium">{stat.rotationDeg.toFixed(0)}°</p>
-          </div>
-        </div>
-      )),
+    () => stats.map(({ id, ...rest }) => <StatBlocks key={id} {...rest} />),
     [stats],
   );
 
-  const handleAddModel = useCallback(() => {
-    if (canAddModel) {
-      addModel();
-    }
-  }, [addModel, canAddModel]);
+  if (!hasHydrated) return <Loader />;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Zadatak 1</h1>
+          <p className="text-sm text-muted-foreground">
+            Motor i tenk iz <code>/public/models/model1.glb</code> i{" "}
+            <code>public/models/model2.glb</code> su odmah dostupni za manipulaciju u 3D i 2D
+            prikazu.
+          </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <ModeToggle />
           <ViewToggle mode={viewMode} />
-          <Button
-            disabled={!canAddModel}
-            onClick={handleAddModel}
-            size="sm"
-            variant="outline"
-            className="h-10 gap-2 rounded-md px-4"
-            aria-label="Dodaj model"
-            title={
-              canAddModel ? "Dodaj novi slot i dodaj GLB" : "Maksimalno dva modela su dozvoljena"
-            }
-          >
-            <Plus className="h-4 w-4" />
-            Dodaj model
-          </Button>
         </div>
       </div>
 
@@ -105,11 +107,12 @@ const ModelWorkspaceComponent = () => {
           {controlCards.length === 0 ? (
             <Card>
               <CardHeader>
-                <CardTitle className="text-base">Još nema modela</CardTitle>
+                <CardTitle className="text-base">Modeli nisu učitani</CardTitle>
               </CardHeader>
               <CardContent>
                 <p className="text-sm text-muted-foreground">
-                  Klikni &ldquo;Dodaj model&rdquo; koji će se prikazati u sceni.
+                  Lokalni demo modeli bi trebali biti dostupni automatski. Provjeri da li postoje{" "}
+                  <code>public/models/model1.glb</code> i <code>public/models/model2.glb</code>.
                 </p>
               </CardContent>
             </Card>

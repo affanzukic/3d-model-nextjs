@@ -4,32 +4,39 @@ import { memo, useCallback, useEffect, useMemo, useRef } from "react";
 
 import { TransformControls, useGLTF } from "@react-three/drei";
 import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
+import type { TransformControls as TransformControlsImpl } from "three-stdlib";
 import { Euler, Group } from "three";
 
 import type { ModelInstanceProps } from "@/components/workspace/scene-model/types";
 import {
   applyTransformToGroup,
   computeFootprint,
-  hasCollision,
+  // hasCollision,
 } from "@/components/workspace/utils";
-import { useModelStore } from "@/lib/store";
+import { useModelStore, ViewMode } from "@/lib/store";
 
 const ModelInstanceComponent = ({ model }: ModelInstanceProps) => {
   const groupRef = useRef<Group>(null);
-  const controlsRef = useRef<TransformControls>(null);
+  const controlsRef = useRef<TransformControlsImpl | null>(null);
+  const attachControlsRef = useCallback((instance: TransformControlsImpl | null) => {
+    controlsRef.current = instance;
+  }, []);
   const footprintRef = useRef<[number, number] | undefined>(model.footprint);
-  const gltf = useGLTF(model.src as string) as GLTF;
+  const gltf = useGLTF(model.src as string) as unknown as GLTF;
   const localScene = useMemo(() => gltf.scene.clone(true), [gltf.scene]);
 
   const updateTransform = useModelStore((state) => state.updateModelTransform);
   const selectModel = useModelStore((state) => state.selectModel);
   const selectedModelId = useModelStore((state) => state.selectedModelId);
   const updateFootprint = useModelStore((state) => state.updateFootprint);
-  const models = useModelStore((state) => state.models);
-  const otherModels = useMemo(
-    () => models.filter((storeModel) => storeModel.id !== model.id),
-    [model.id, models],
-  );
+  const setCameraLocked = useModelStore((state) => state.setCameraLocked);
+  const viewMode = useModelStore((state) => state.viewMode);
+  const is3DView = viewMode === ViewMode.VIEW_3D;
+  // const models = useModelStore((state) => state.models);
+  // const otherModels = useMemo(
+  //   () => models.filter((storeModel) => storeModel.id !== model.id),
+  //   [model.id, models],
+  // );
 
   useEffect(() => {
     if (!localScene) {
@@ -49,34 +56,54 @@ const ModelInstanceComponent = ({ model }: ModelInstanceProps) => {
     if (!group) {
       return;
     }
-    const { x, y, z } = group.position;
-    const nextPosition: [number, number, number] = [x, Math.max(0, y), z];
+    const { x, y, z } = group.parent?.position ?? {
+      x: group.position.x,
+      y: group.position.y,
+      z: group.position.z,
+    };
+    const nextPosition: [number, number, number] = [x, y, z];
 
-    if (hasCollision(nextPosition, footprintRef.current, otherModels)) {
-      applyTransformToGroup(groupRef.current, model.position, model.rotation);
-      return;
-    }
+    applyTransformToGroup(groupRef.current, model.position, model.rotation);
+
+    // TODO: fix collision detection
+    // if (hasCollision(nextPosition, footprintRef.current, otherModels)) {
+    //   applyTransformToGroup(groupRef.current, model.position, model.rotation);
+    //   return;
+    // }
 
     updateTransform(model.id, {
       position: nextPosition,
       rotation: [group.rotation.x, group.rotation.y, group.rotation.z] as [number, number, number],
     });
-  }, [model.id, model.position, model.rotation, otherModels, updateTransform]);
+  }, [model.id, model.position, model.rotation, updateTransform]);
 
   useEffect(() => {
     const controls = controlsRef.current;
     if (!controls) {
       return;
     }
-    controls.addEventListener("objectChange", handleObjectChange);
+    const controlsWithEvents = controls as unknown as {
+      addEventListener: (event: string, cb: () => void) => void;
+      removeEventListener: (event: string, cb: () => void) => void;
+    };
+    controlsWithEvents.addEventListener("objectChange", handleObjectChange);
     return () => {
-      controls.removeEventListener("objectChange", handleObjectChange);
+      controlsWithEvents.removeEventListener("objectChange", handleObjectChange);
     };
   }, [handleObjectChange]);
 
   const handleMouseDown = useCallback(() => {
     selectModel(model.id);
-  }, [model.id, selectModel]);
+    if (is3DView) {
+      setCameraLocked(true);
+    }
+  }, [is3DView, model.id, selectModel, setCameraLocked]);
+
+  const handleMouseUp = useCallback(() => {
+    if (is3DView) {
+      setCameraLocked(false);
+    }
+  }, [is3DView, setCameraLocked]);
 
   const isSelected = selectedModelId === model.id;
   const isVisible = Boolean(model.src && localScene);
@@ -87,19 +114,20 @@ const ModelInstanceComponent = ({ model }: ModelInstanceProps) => {
 
   return (
     <TransformControls
-      ref={controlsRef}
+      ref={attachControlsRef}
       enabled={isSelected}
       mode="translate"
       position={model.position}
-      showY={false}
+      showY
       onMouseDown={handleMouseDown}
+      onMouseUp={handleMouseUp}
     >
       <group
         ref={groupRef}
         castShadow
         position={model.position}
         receiveShadow
-        rotation={model.rotation as Euler}
+        rotation={model.rotation as unknown as Euler}
         scale={model.scale}
       >
         <primitive object={localScene} />

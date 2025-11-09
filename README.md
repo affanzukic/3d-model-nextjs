@@ -12,7 +12,7 @@
 ## Prerequisites
 
 - Node.js **>= 20** (see `.nvmrc`) and PNPM **>= 9**.
-- Optional for now: a Firebase project with Firestore enabled so credentials are ready:
+- A Firebase project with Firestore enabled so credentials are ready:
 
 ```
 NEXT_PUBLIC_FIREBASE_API_KEY=""

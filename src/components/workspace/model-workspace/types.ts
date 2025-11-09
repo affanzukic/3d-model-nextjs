@@ -1,7 +1,6 @@
-import type { ModelState } from "@/lib/store";
-
 export type WorkspaceStat = {
-  id: ModelState["id"];
+  id: string;
+  label: string;
   position: [string, string, string];
   rotationDeg: number;
 };

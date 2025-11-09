@@ -22,6 +22,7 @@ const SceneContentsComponent = () => {
   const models = useModelStore((state) => state.models);
   const viewMode = useModelStore((state) => state.viewMode);
   const is3D = viewMode === ViewMode.VIEW_3D;
+  const isCameraLocked = useModelStore((state) => state.isCameraLocked);
 
   const modelInstances = useMemo(
     () =>
@@ -52,7 +53,7 @@ const SceneContentsComponent = () => {
         sectionColor="#cbd5f5"
       />
       <Environment preset="city" />
-      <OrbitControls {...orbitControlsConfig} />
+      <OrbitControls {...orbitControlsConfig} enabled={is3D ? !isCameraLocked : true} />
       {modelInstances}
     </>
   );

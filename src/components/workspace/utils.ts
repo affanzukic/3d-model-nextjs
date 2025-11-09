@@ -1,4 +1,4 @@
-import { Box3, Group, Object3D, Vector3 } from "three";
+import { Box3, Group, Object3D, Raycaster, Vector3 } from "three";
 
 import type { ModelState } from "@/lib/store";
 
@@ -21,6 +21,25 @@ export const applyTransformToGroup = (
   group.rotation.set(...rotation);
 };
 
+const raycaster = new Raycaster();
+const rayOrigin = new Vector3();
+const rayDirection = new Vector3();
+const intersectionPoint = new Vector3();
+const candidateBox = new Box3();
+const targetBox = new Box3();
+
+const buildFootprintBox = (
+  box: Box3,
+  [x, y, z]: [number, number, number],
+  [width, depth]: [number, number],
+) => {
+  const halfWidth = width / 2;
+  const halfDepth = depth / 2;
+  box.min.set(x - halfWidth, y - 0.5, z - halfDepth);
+  box.max.set(x + halfWidth, y + 0.5, z + halfDepth);
+  return box;
+};
+
 export const hasCollision = (
   nextPosition: [number, number, number],
   selfFootprint: [number, number] | undefined,
@@ -30,20 +49,29 @@ export const hasCollision = (
     return false;
   }
 
-  const [nextX, , nextZ] = nextPosition;
+  buildFootprintBox(candidateBox, nextPosition, selfFootprint);
+  rayOrigin.set(...nextPosition);
 
   return otherModels.some((model) => {
     if (!model.footprint) {
       return false;
     }
 
-    const [modelX, , modelZ] = model.position;
-    const halfX = model.footprint[0] / 2 + selfFootprint[0] / 2;
-    const halfZ = model.footprint[1] / 2 + selfFootprint[1] / 2;
+    buildFootprintBox(targetBox, model.position, model.footprint);
 
-    const overlapX = Math.abs(nextX - modelX) < halfX;
-    const overlapZ = Math.abs(nextZ - modelZ) < halfZ;
+    if (candidateBox.intersectsBox(targetBox)) {
+      return true;
+    }
 
-    return overlapX && overlapZ;
+    rayDirection.set(model.position[0], model.position[1], model.position[2]).sub(rayOrigin);
+    const distance = rayDirection.length();
+    if (distance === 0) {
+      return true;
+    }
+    rayDirection.normalize();
+    raycaster.ray.origin.copy(rayOrigin);
+    raycaster.ray.direction.copy(rayDirection);
+    const hit = raycaster.ray.intersectBox(targetBox, intersectionPoint);
+    return Boolean(hit && hit.distanceTo(rayOrigin) <= distance);
   });
 };
